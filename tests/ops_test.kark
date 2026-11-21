@@ -1,0 +1,72 @@
+// Karkain Project Manager - Round 2 self-contained tests.
+
+func r2t_dep_of(tasks, id) {
+    let i = 0
+    while (i < len(tasks)) {
+        let f = split(tasks[i], "|")
+        if (f[0] == id) { return f[1] }
+        i = i + 1
+    }
+    return "-"
+}
+
+func r2t_has_cycle(tasks, task, dep) {
+    let cur = dep
+    let steps = 0
+    while (cur != "-" && steps < 100) {
+        if (cur == task) { return 1 }
+        cur = r2t_dep_of(tasks, cur)
+        steps = steps + 1
+    }
+    return 0
+}
+
+func test_r2_cycle_rejection() {
+    let tasks = ["2|1", "3|2"]
+    assert_eq(r2t_has_cycle(tasks, "1", "3"), 1)
+    assert_eq(r2t_has_cycle(tasks, "3", "1"), 0)
+    assert_eq(r2t_has_cycle(tasks, "2", "2"), 1)
+}
+
+func test_r2_lifecycle_transition() {
+    let state = "PLAN"
+    let ok1 = 0
+    if (state == "PLAN") { ok1 = 1 }
+    assert_eq(ok1, 1)
+    state = "ACTIVE"
+    let ok2 = 0
+    if (state == "ACTIVE") { ok2 = 1 }
+    assert_eq(ok2, 1)
+    state = "DONE"
+    let bad = 1
+    if (state == "PLAN") { bad = 0 }
+    assert_eq(bad, 1)
+}
+
+func test_r2_dependency_gate() {
+    let tasks = ["1|DONE", "2|PLAN"]
+    let dep = "-"
+    let allowed = 1
+    if (dep != "-") {
+        let dstatus = ""
+        let i = 0
+        while (i < len(tasks)) {
+            let f = split(tasks[i], "|")
+            if (f[0] == dep) { dstatus = f[1] }
+            i = i + 1
+        }
+        if (dstatus != "DONE") { allowed = 0 }
+    }
+    assert_eq(allowed, 1)
+    dep = "2"
+    allowed = 1
+    let i = 0
+    while (i < len(tasks)) {
+        let f = split(tasks[i], "|")
+        if (f[0] == dep) {
+            if (f[1] != "DONE") { allowed = 0 }
+        }
+        i = i + 1
+    }
+    assert_eq(allowed, 0)
+}

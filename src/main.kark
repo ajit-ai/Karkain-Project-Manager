@@ -184,4 +184,5 @@ func main() {
     persist("data/state.dat", state)
     persist("data/report.dat", report)
     print("PROJECT_MANAGER_OK projects=" + str(count_type(state, "PROJ")) + " tasks=" + str(count_type(state, "TASK")) + " done=" + str(count_done(state)))
+    r2_run()
 }

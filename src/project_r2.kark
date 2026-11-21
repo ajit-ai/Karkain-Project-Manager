@@ -1,0 +1,276 @@
+// Karkain Project Manager - Round 2 workflow: lifecycle states (PLAN/ACTIVE/
+// DONE), milestones, task dependencies with cycle/validation rejection, status
+// transitions, persistence and an append-only history. Additive to Round 1.
+
+func r2_load_state(path) {
+    let parts = split(readFile(path), "\n")
+    let out = []
+    let i = 0
+    while (i < len(parts)) {
+        if (parts[i] != "") { push(out, parts[i]) }
+        i = i + 1
+    }
+    return out
+}
+
+func r2_field(rec, idx) {
+    let f = split(rec, "|")
+    if (len(f) > idx) { return f[idx] }
+    return ""
+}
+
+func r2_find2(state, t, k2) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (len(f) > 1) {
+            if (f[0] == t && f[1] == k2) { return state[i] }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_find3(state, t, k2, k3) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (len(f) > 2) {
+            if (f[0] == t && f[1] == k2 && f[2] == k3) { return state[i] }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func r2_upsert2(state, t, k2, rec) {
+    let out = []
+    let replaced = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        let ismatch = 0
+        if (len(f) > 1) { if (f[0] == t && f[1] == k2) { ismatch = 1 } }
+        if (ismatch == 1) { push(out, rec); replaced = 1 } else { push(out, state[i]) }
+        i = i + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func r2_upsert3(state, t, k2, k3, rec) {
+    let out = []
+    let replaced = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        let ismatch = 0
+        if (len(f) > 2) { if (f[0] == t && f[1] == k2 && f[2] == k3) { ismatch = 1 } }
+        if (ismatch == 1) { push(out, rec); replaced = 1 } else { push(out, state[i]) }
+        i = i + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func r2_count_type(state, t) {
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        if (r2_field(state[i], 0) == t) { n = n + 1 }
+        i = i + 1
+    }
+    return n
+}
+
+func r2_next_task_id(state) {
+    let mx = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            let n = int(f[1])
+            if (n > mx) { mx = n }
+        }
+        i = i + 1
+    }
+    return mx + 1
+}
+
+// Follow the depends-on chain from dep; if it reaches task, adding the edge
+// task -> dep would form a cycle.
+func r2_has_cycle(state, task, dep) {
+    let cur = dep
+    let steps = 0
+    while (cur != "-" && steps < 100) {
+        if (cur == task) { return 1 }
+        let rec = r2_find2(state, "TASK", cur)
+        if (rec == "") { return 0 }
+        cur = r2_field(rec, 5)
+        steps = steps + 1
+    }
+    return 0
+}
+
+func r2_persist(path, lines) {
+    let out = ""
+    let i = 0
+    while (i < len(lines)) {
+        out = out + lines[i] + "\n"
+        i = i + 1
+    }
+    writeFile(path, out)
+}
+
+func r2_add_history(history, action, detail) {
+    let seq = len(history) + 1
+    push(history, "HIST|" + str(seq) + "|" + action + "|" + detail)
+    return history
+}
+
+func r2_run() {
+    let cmds = split(readFile("data/r2_commands.dat"), "\n")
+    let state = r2_load_state("data/r2_state.dat")
+    let history = r2_load_state("data/r2_history.dat")
+    let report = []
+    let rejects = 0
+    let i = 0
+    while (i < len(cmds)) {
+        let line = trim(cmds[i])
+        if (line != "") {
+            let f = split(line, "|")
+            let op = f[0]
+            if (op == "CREATE") {
+                state = r2_upsert2(state, "PROJ", f[1], "PROJ|" + f[1] + "|PLAN")
+                history = r2_add_history(history, "CREATE", f[1])
+                print("PM_R2 create " + f[1] + " state=PLAN")
+                push(report, "CREATE " + f[1])
+            }
+            if (op == "ACTIVATE") {
+                let rec = r2_find2(state, "PROJ", f[1])
+                let before = r2_field(rec, 2)
+                if (before == "PLAN") {
+                    state = r2_upsert2(state, "PROJ", f[1], "PROJ|" + f[1] + "|ACTIVE")
+                    print("PM_R2 activate " + f[1] + " " + before + "->ACTIVE")
+                    history = r2_add_history(history, "ACTIVATE", f[1])
+                    push(report, "ACTIVATE " + f[1])
+                } else {
+                    rejects = rejects + 1
+                    print("PM_R2 activate " + f[1] + " REJECT state=" + before)
+                    history = r2_add_history(history, "REJECT_ACTIVATE", f[1])
+                }
+            }
+            if (op == "COMPLETE") {
+                let rec = r2_find2(state, "PROJ", f[1])
+                let before = r2_field(rec, 2)
+                if (before == "ACTIVE") {
+                    state = r2_upsert2(state, "PROJ", f[1], "PROJ|" + f[1] + "|DONE")
+                    print("PM_R2 complete " + f[1] + " " + before + "->DONE")
+                    history = r2_add_history(history, "COMPLETE", f[1])
+                    push(report, "COMPLETE " + f[1])
+                } else {
+                    rejects = rejects + 1
+                    print("PM_R2 complete " + f[1] + " REJECT state=" + before)
+                    history = r2_add_history(history, "REJECT_COMPLETE", f[1])
+                }
+            }
+            if (op == "TASK") {
+                let id = str(r2_next_task_id(state))
+                state = r2_upsert2(state, "TASK", id, "TASK|" + id + "|" + f[1] + "|" + f[2] + "|PLAN|-")
+                history = r2_add_history(history, "TASK", id + " " + f[1])
+                print("PM_R2 task " + id + " " + f[1] + " " + f[2] + " state=PLAN")
+                push(report, "TASK " + id)
+            }
+            if (op == "DEPENDS") {
+                let ta = r2_find2(state, "TASK", f[1])
+                let tb = r2_find2(state, "TASK", f[2])
+                let verdict = "ACCEPT"
+                if (ta == "" || tb == "") { verdict = "REJECT missing" }
+                if (f[1] == f[2]) { verdict = "REJECT self" }
+                if (r2_has_cycle(state, f[1], f[2]) == 1) { verdict = "REJECT cycle" }
+                if (verdict == "ACCEPT") {
+                    let nr = "TASK|" + f[1] + "|" + r2_field(ta, 2) + "|" + r2_field(ta, 3) + "|" + r2_field(ta, 4) + "|" + f[2]
+                    state = r2_upsert2(state, "TASK", f[1], nr)
+                    history = r2_add_history(history, "DEPENDS", f[1] + "->" + f[2])
+                } else {
+                    rejects = rejects + 1
+                    history = r2_add_history(history, "REJECT_DEPENDS", f[1] + "->" + f[2] + " " + verdict)
+                }
+                print("PM_R2 depends " + f[1] + "->" + f[2] + " " + verdict)
+                push(report, "DEPENDS " + f[1] + "->" + f[2] + " " + verdict)
+            }
+            if (op == "START") {
+                let rec = r2_find2(state, "TASK", f[1])
+                let status = r2_field(rec, 4)
+                let dep = r2_field(rec, 5)
+                let verdict = "ACCEPT"
+                if (status != "PLAN") { verdict = "REJECT state=" + status }
+                if (dep != "-") {
+                    let drec = r2_find2(state, "TASK", dep)
+                    if (r2_field(drec, 4) != "DONE") { verdict = "REJECT dep=" + dep + " not DONE" }
+                }
+                if (verdict == "ACCEPT") {
+                    let nr = "TASK|" + f[1] + "|" + r2_field(rec, 2) + "|" + r2_field(rec, 3) + "|ACTIVE|" + dep
+                    state = r2_upsert2(state, "TASK", f[1], nr)
+                    history = r2_add_history(history, "START", f[1])
+                } else {
+                    rejects = rejects + 1
+                    history = r2_add_history(history, "REJECT_START", f[1] + " " + verdict)
+                }
+                print("PM_R2 start " + f[1] + " " + verdict)
+                push(report, "START " + f[1] + " " + verdict)
+            }
+            if (op == "FINISH") {
+                let rec = r2_find2(state, "TASK", f[1])
+                let status = r2_field(rec, 4)
+                let verdict = "ACCEPT"
+                if (status != "ACTIVE") { verdict = "REJECT state=" + status }
+                if (verdict == "ACCEPT") {
+                    let nr = "TASK|" + f[1] + "|" + r2_field(rec, 2) + "|" + r2_field(rec, 3) + "|DONE|" + r2_field(rec, 5)
+                    state = r2_upsert2(state, "TASK", f[1], nr)
+                    history = r2_add_history(history, "FINISH", f[1])
+                } else {
+                    rejects = rejects + 1
+                    history = r2_add_history(history, "REJECT_FINISH", f[1] + " " + verdict)
+                }
+                print("PM_R2 finish " + f[1] + " " + verdict)
+                push(report, "FINISH " + f[1] + " " + verdict)
+            }
+            if (op == "MILESTONE") {
+                state = r2_upsert3(state, "MILE", f[1], f[2], "MILE|" + f[1] + "|" + f[2] + "|PLAN")
+                history = r2_add_history(history, "MILESTONE", f[1] + " " + f[2])
+                print("PM_R2 milestone " + f[1] + " " + f[2] + " state=PLAN")
+                push(report, "MILESTONE " + f[1] + " " + f[2])
+            }
+            if (op == "MSTATE") {
+                let rec = r2_find3(state, "MILE", f[1], f[2])
+                let verdict = "ACCEPT"
+                if (rec == "") { verdict = "REJECT missing" }
+                if (verdict == "ACCEPT") {
+                    state = r2_upsert3(state, "MILE", f[1], f[2], "MILE|" + f[1] + "|" + f[2] + "|" + f[3])
+                    history = r2_add_history(history, "MSTATE", f[1] + " " + f[2] + " " + f[3])
+                } else {
+                    rejects = rejects + 1
+                }
+                print("PM_R2 mstate " + f[1] + " " + f[2] + " " + verdict)
+                push(report, "MSTATE " + f[1] + " " + f[2])
+            }
+            if (op == "LIST2") {
+                let j = 0
+                while (j < len(state)) {
+                    let g = split(state[j], "|")
+                    if (g[0] == "PROJ") { print("PM_R2 list PROJ " + g[1] + " state=" + g[2]) }
+                    if (g[0] == "TASK") { print("PM_R2 list TASK " + g[1] + " [" + g[2] + "] " + g[3] + " " + g[4] + " dep=" + g[5]) }
+                    if (g[0] == "MILE") { print("PM_R2 list MILE " + g[1] + " " + g[2] + " " + g[3]) }
+                    j = j + 1
+                }
+                push(report, "LIST2")
+            }
+        }
+        i = i + 1
+    }
+    r2_persist("data/r2_state.dat", state)
+    r2_persist("data/r2_history.dat", history)
+    r2_persist("data/r2_report.dat", report)
+    print("PM_R2_OK projects=" + str(r2_count_type(state, "PROJ")) + " tasks=" + str(r2_count_type(state, "TASK")) + " milestones=" + str(r2_count_type(state, "MILE")) + " history=" + str(len(history)) + " rejects=" + str(rejects))
+}
