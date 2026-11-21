@@ -1,0 +1,172 @@
+// Karkain Project Manager - first functional slice.
+// Commands in data/commands.dat (pipe-delimited):
+//   PROJECT|name          create a project
+//   TASK|project|title    add a todo task to a project (auto-increment id)
+//   DONE|taskid           mark a task as done (status persisted)
+//   LIST                  list projects and tasks with status
+// State is persisted in data/state.dat; an action log goes to data/report.dat.
+
+func load_state(path) {
+    let parts = split(readFile(path), "\n")
+    let out = []
+    let i = 0
+    while (i < len(parts)) {
+        if (parts[i] != "") { push(out, parts[i]) }
+        i = i + 1
+    }
+    return out
+}
+
+func upsert2(state, t, k2, rec) {
+    let out = []
+    let replaced = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        let is_match = 0
+        if (len(f) > 1) {
+            if (f[0] == t && f[1] == k2) { is_match = 1 }
+        }
+        if (is_match == 1) { push(out, rec); replaced = 1 } else { push(out, state[i]) }
+        i = i + 1
+    }
+    if (replaced == 0) { push(out, rec) }
+    return out
+}
+
+func find_rec(state, t, k2) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (len(f) > 1) {
+            if (f[0] == t && f[1] == k2) { return state[i] }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+func count_type(state, t) {
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == t) { n = n + 1 }
+        i = i + 1
+    }
+    return n
+}
+
+func count_done(state) {
+    let n = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            if (len(f) > 4) {
+                if (f[4] == "1") { n = n + 1 }
+            }
+        }
+        i = i + 1
+    }
+    return n
+}
+
+func next_task_id(state) {
+    let mx = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            if (len(f) > 1) {
+                let n = int(f[1])
+                if (n > mx) { mx = n }
+            }
+        }
+        i = i + 1
+    }
+    return mx + 1
+}
+
+func set_task_status(state, id, status) {
+    let rec = find_rec(state, "TASK", id)
+    if (rec == "") { return state }
+    let f = split(rec, "|")
+    let nr = "TASK|" + f[1] + "|" + f[2] + "|" + f[3] + "|" + str(status)
+    return upsert2(state, "TASK", id, nr)
+}
+
+func list_all(state) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "PROJ") { print("PROJECT " + f[1]) }
+        i = i + 1
+    }
+    i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            if (len(f) > 4) {
+                let mark = "TODO"
+                if (f[4] == "1") { mark = "DONE" }
+                print("TASK " + f[1] + " [" + f[2] + "] " + f[3] + " " + mark)
+            }
+        }
+        i = i + 1
+    }
+}
+
+func persist(path, lines) {
+    let out = ""
+    let i = 0
+    while (i < len(lines)) {
+        out = out + lines[i] + "\n"
+        i = i + 1
+    }
+    writeFile(path, out)
+}
+
+func main() {
+    let cmds = split(readFile("data/commands.dat"), "\n")
+    let state = load_state("data/state.dat")
+    let report = []
+    let i = 0
+    while (i < len(cmds)) {
+        let line = trim(cmds[i])
+        if (line != "") {
+            let f = split(line, "|")
+            let op = f[0]
+            if (op == "PROJECT") {
+                state = upsert2(state, "PROJ", f[1], "PROJ|" + f[1])
+                let msg = "PROJECT " + f[1]
+                print(msg)
+                push(report, msg)
+            }
+            if (op == "TASK") {
+                let id = str(next_task_id(state))
+                let rec = "TASK|" + id + "|" + f[1] + "|" + f[2] + "|0"
+                state = upsert2(state, "TASK", id, rec)
+                let msg = "TASK " + id + " " + f[1] + " " + f[2]
+                print(msg)
+                push(report, msg)
+            }
+            if (op == "DONE") {
+                let before = count_done(state)
+                state = set_task_status(state, f[1], 1)
+                let msg = "DONE " + f[1]
+                print(msg)
+                push(report, msg)
+                if (count_done(state) == before) { print("WARN task " + f[1] + " not found") }
+            }
+            if (op == "LIST") {
+                list_all(state)
+                push(report, "LIST")
+            }
+        }
+        i = i + 1
+    }
+    persist("data/state.dat", state)
+    persist("data/report.dat", report)
+    print("PROJECT_MANAGER_OK projects=" + str(count_type(state, "PROJ")) + " tasks=" + str(count_type(state, "TASK")) + " done=" + str(count_done(state)))
+}

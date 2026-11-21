@@ -1,0 +1,52 @@
+func test_next_task_id() {
+    let state = ["TASK|1|Atlas|Design schema|0", "TASK|2|Atlas|Implement API|0", "TASK|5|Orion|Write docs|0"]
+    let mx = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        let n = int(f[1])
+        if (n > mx) { mx = n }
+        i = i + 1
+    }
+    assert_eq(mx + 1, 6)
+}
+
+func test_task_status_upsert() {
+    let state = ["TASK|1|Atlas|Design schema|0", "TASK|2|Atlas|Implement API|0"]
+    let id = "1"
+    let out = []
+    let replaced = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK" && f[1] == id) {
+            push(out, "TASK|" + f[1] + "|" + f[2] + "|" + f[3] + "|1")
+            replaced = 1
+        } else {
+            push(out, state[i])
+        }
+        i = i + 1
+    }
+    state = out
+    assert_eq(replaced, 1)
+    assert_eq(len(state), 2)
+    assert_eq(split(state[0], "|")[4], "1")
+    assert_eq(split(state[1], "|")[4], "0")
+}
+
+func test_done_count() {
+    let state = ["TASK|1|Atlas|Design schema|1", "TASK|2|Atlas|Implement API|0", "PROJ|Atlas"]
+    let done = 0
+    let total = 0
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            total = total + 1
+            if (f[4] == "1") { done = done + 1 }
+        }
+        i = i + 1
+    }
+    assert_eq(total, 2)
+    assert_eq(done, 1)
+}
