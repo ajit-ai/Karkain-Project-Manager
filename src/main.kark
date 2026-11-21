@@ -46,6 +46,18 @@ func find_rec(state, t, k2) {
     return ""
 }
 
+func find_task_title(state, project, title) {
+    let i = 0
+    while (i < len(state)) {
+        let f = split(state[i], "|")
+        if (f[0] == "TASK") {
+            if (f[2] == project && f[3] == title) { return state[i] }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
 func count_type(state, t) {
     let n = 0
     let i = 0
@@ -144,12 +156,15 @@ func main() {
                 push(report, msg)
             }
             if (op == "TASK") {
-                let id = str(next_task_id(state))
-                let rec = "TASK|" + id + "|" + f[1] + "|" + f[2] + "|0"
-                state = upsert2(state, "TASK", id, rec)
-                let msg = "TASK " + id + " " + f[1] + " " + f[2]
-                print(msg)
-                push(report, msg)
+                let existing = find_task_title(state, f[1], f[2])
+                if (existing == "") {
+                    let id = str(next_task_id(state))
+                    let rec = "TASK|" + id + "|" + f[1] + "|" + f[2] + "|0"
+                    state = upsert2(state, "TASK", id, rec)
+                    let msg = "TASK " + id + " " + f[1] + " " + f[2]
+                    print(msg)
+                    push(report, msg)
+                }
             }
             if (op == "DONE") {
                 let before = count_done(state)
